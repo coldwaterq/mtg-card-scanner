@@ -1,24 +1,28 @@
 import cv2
 import numpy as np
-from transformers import AutoImageProcessor, AutoModel
+from transformers import CLIPProcessor, CLIPModel
 import urllib
 import ssl
 import torch
+import os
 
-model_ckpt = "google/vit-base-patch16-224"
-image_processor = AutoImageProcessor.from_pretrained(model_ckpt)
-model = AutoModel.from_pretrained(model_ckpt)
+model_ckpt = "openai/clip-vit-large-patch14-336"
+image_processor = CLIPProcessor.from_pretrained(model_ckpt)
+model = CLIPModel.from_pretrained(model_ckpt)
 model.eval()
 
-def getImage():
+def getImage(referenceEmbeddings, names):
     cam = cv2.VideoCapture(0)
     cv2.namedWindow('test')
     while True:
         ret,frame = cam.read()
         if not ret:
             print('failed to grab frame')
-        boundImg = findBoundingBox(frame)
+        boundImg, name, score = findBoundingBox(frame, referenceEmbeddings, names)
         cv2.imshow('test', boundImg)
+        if score > .7:
+            print(name)
+            break
         k = cv2.waitKey(1)
         if k%256 == 27:
             print('escape hit')
@@ -31,7 +35,7 @@ def getImage():
     cv2.destroyAllWindows()
     return frame
 
-def findBoundingBox(frame):
+def findBoundingBox(frame, referenceEmbeddings, names):
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     ret,thresh = cv2.threshold(gray,70,255,cv2.THRESH_BINARY)
     # contours, _ = cv2.findContours(thresh,cv2.RETR_TREE,cv2.CHAIN_APPROX_NONE)
@@ -50,20 +54,38 @@ def findBoundingBox(frame):
         if h/w > 1 and h/w < 3 and moments['m00'] > 10000:
             foundContours.append(i)
             crop_img = frame[y:y+h, x:x+w]
-            return(crop_img)
-            img1 = cv2.drawContours(img1, contours, i, (255,255,0),2)
-
-    return img1
+            embeding = computeEmbedding(frame)
+            name, score = compareEmbedding(embeding, referenceEmbeddings,names)
+            return(crop_img, name, score)
+    return img1, None, 0
 
 def computeEmbedding(frame):
-    new_batch = image_processor(images=frame, return_tensors="pt")
-    embeddings = model(**new_batch).last_hidden_state[:, 0].cpu()
+    new_batch = image_processor(text=[''],images=frame, return_tensors="pt")
+    output = model(**new_batch)
+    embeddings = output.image_embeds
     return embeddings
 
-def compareEmbedding(embeding1, embeding2):
+def compareEmbedding(embeding1, embeding2, names):
     scores = torch.nn.functional.cosine_similarity(embeding1, embeding2, dim=1)
-    print(scores)
-    print(scores.detach().numpy().tolist())
+    npScores = scores.detach().numpy()
+    i = np.argmax(npScores)
+    return(names[i],npScores[i])
+
+def createEmbeddingsFromDir(d):
+    images = []
+    names = []
+    i = 0
+    for im in os.listdir(d):
+        i+=1
+        print(im)
+        if i>50:
+            break
+        names.append(im)
+        path = os.path.join(d,im)
+        img = cv2.imread(path)
+        images.append(img)
+    embeddings = computeEmbedding(images)
+    return embeddings,names
 
 def testAgainstLnk(lnk, embedding):
     ctx = ssl.create_default_context()
@@ -73,11 +95,13 @@ def testAgainstLnk(lnk, embedding):
     arr = np.asarray(bytearray(req.read()), dtype=np.uint8)
     srcimg = cv2.imdecode(arr, cv2.IMREAD_COLOR) # 'Load it as it is'
     srcembeding = computeEmbedding(srcimg)
-    compareEmbedding(embeding, srcembeding)
+    compareEmbedding(srcembeding, embedding)
+
+srclinks = [
+    'https://gatherer.wizards.com/Handlers/Image.ashx?multiverseid=522215&type=card'
+]
 
 if __name__ == '__main__':
-    frame = getImage()
-    embeding = computeEmbedding(frame)
-    testAgainstLnk('https://cards.scryfall.io/large/front/e/a/ea54760c-2cd3-43eb-bc45-adc0997b34b0.jpg?1562442605',embeding)
-    testAgainstLnk('https://cards.scryfall.io/large/front/1/8/18f8ac7a-a68a-4adf-995f-1cd96ee3d295.jpg?1562783088',embeding)
-    testAgainstLnk('https://cards.scryfall.io/large/front/d/b/dba1cf83-e13d-401e-b76f-b12a51b307f9.jpg?1677149962',embeding)
+    referenceEmbeddings,names = createEmbeddingsFromDir(r'C:\Users\coldw\OneDrive\Pictures\cards\2018-rix')
+    frame = getImage(referenceEmbeddings, names)
+    # https://milvus.io/docs/example_code.md
