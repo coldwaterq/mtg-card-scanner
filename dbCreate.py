@@ -10,6 +10,7 @@ from pymilvus import (
 )
 from transformers import CLIPProcessor, CLIPModel
 import cv2
+import numpy
 
 # Tested using Commander's Sphere
 # model_ckpt = "openai/clip-vit-base-patch32" # correct set between 3-8
@@ -23,17 +24,13 @@ model = CLIPModel.from_pretrained(model_ckpt)
 model.eval()
 model.to('cuda')
 
-def addToDb(collection, cLoc, cset, collector_number, prices, name):
-    img = cv2.imread(cLoc)
-    new_batch = image_processor(text=[''],images=img, return_tensors="pt")
-    new_batch.to('cuda')
-    output = model(**new_batch)
-    embedding = output.image_embeds.cpu().detach()
+def addToDb(collection, embedding, cset, collector_number, prices, name):
+    
     search_params = {
         "metric_type": "COSINE",
         "params": {"nprobe": 512},
     }
-    result = collection.search(embedding.numpy().tolist(), "embedding", search_params, limit=1, output_fields=["set"])
+    result = collection.search(embedding.tolist(), "embedding", search_params, limit=1, output_fields=["set"])
     if len(result[0])>0 and result[0][0].distance > 0.99999:
         return
     entity = [
@@ -48,25 +45,44 @@ def addToDb(collection, cLoc, cset, collector_number, prices, name):
     print(insert_result)
     
 
-def save(url, name):
+def save(url, name,cset, embeddingId):
+    print('\tcomputing embedding')
     name = clean(name)
-    if os.path.exists(name):
-        return name
-    if not os.path.exists(os.path.dirname(name)):
-        os.mkdir(os.path.dirname(name))
-    r = requests.get(url, stream=True)
-    if r.status_code == 200:
-        with open(name, 'wb') as f:
-            for chunk in r:
-                f.write(chunk)
-    print("\tdownloaded")
-    return name
+    if not os.path.exists(name):
+        if not os.path.exists(os.path.dirname(name)):
+            os.mkdir(os.path.dirname(name))
+        r = requests.get(url, stream=True)
+        if r.status_code == 200:
+            with open(name, 'wb') as f:
+                for chunk in r:
+                    f.write(chunk)
+        print("\tdownloaded")
+    img = cv2.imread(name)
+    new_batch = image_processor(text=[''],images=img, return_tensors="pt")
+    new_batch.to('cuda')
+    output = model(**new_batch)
+    embedding = output.image_embeds.cpu().detach().numpy()
+    embeddingPath = os.path.join('embeddings',cset)
+    if not os.path.exists(embeddingPath):
+        os.mkdir(embeddingPath)
+    embeddingId = embeddingId.replace('/','').partition('?')[0]
+    embeddingPath = os.path.join(embeddingPath, embeddingId+'.npy')
+    numpy.save(embeddingPath, embedding, allow_pickle=False)
+    return embedding
 
 def clean(name):
     unapproved = '*★†Φ'
     for c in unapproved:
         name = name.replace(c,'-s')
     return name
+
+def loadEmbedding(cset,embeddingId):
+    embeddingId = embeddingId.replace('/','').partition('?')[0]
+    embeddingPath = os.path.join('embeddings',cset,embeddingId+'.npy')
+    if os.path.exists(embeddingPath):
+        embedding = numpy.load(embeddingPath, allow_pickle=False)
+        return embedding
+    return None
 
 def run(collection):
     collection.load()
@@ -102,9 +118,11 @@ def run(collection):
         year = card['released_at'].partition('-')[0]
         if 'image_uris' in card.keys():
             print('\t',card['set'], card['collector_number'], card['name'])
-            cLoc = os.path.join(cacheDir, year+'-'+card['set'], card['set']+"-"+card['collector_number']+".jpg")
-            cLoc = save(card['image_uris'][image_type], cLoc)
-            addToDb(collection, cLoc, card['set'], card['collector_number'], card['prices'], card['name'])
+            embedding = loadEmbedding(card['set'],card['image_uris'][image_type].partition(image_type)[2])
+            if embedding is None:
+                cLoc = os.path.join(cacheDir, year+'-'+card['set'], card['set']+"-"+card['collector_number']+".jpg")
+                embedding = save(card['image_uris'][image_type], cLoc,card['set'],card['image_uris'][image_type].partition(image_type)[2])
+            addToDb(collection, embedding, card['set'], card['collector_number'], card['prices'], card['name'])
         else:
             if len(card['card_faces']) == 0:
                 continue
@@ -119,9 +137,11 @@ def run(collection):
                     t = card['type_line']
                 collectorNum = card['collector_number']+parts[i]
                 print('\t',card['set'], collectorNum, t, face['name'])
-                cLoc = os.path.join(cacheDir, year+'-'+card['set'], card['set']+"-"+collectorNum+".jpg")
-                cLoc = save(face['image_uris'][image_type], cLoc)
-                addToDb(collection,cLoc, card['set'], card['collector_number'], card['prices'], card['name'])
+                embedding = loadEmbedding(card['set'],face['image_uris'][image_type].partition(image_type)[2])
+                if embedding is None:
+                    cLoc = os.path.join(cacheDir, year+'-'+card['set'], card['set']+"-"+collectorNum+".jpg")
+                    embedding = save(face['image_uris'][image_type], cLoc,card['set'],face['image_uris'][image_type].partition(image_type)[2])
+                addToDb(collection,embedding, card['set'], card['collector_number'], card['prices'], card['name'])
                 
 def connectDB():
     connections.connect("default", host="localhost", port="19530")

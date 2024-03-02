@@ -66,59 +66,64 @@ def openCsv():
 
 
 def getImage(collection, csvWriter):
+    boudingScore = 0.80
     cam = cv2.VideoCapture(0,cv2.CAP_DSHOW)
     cv2.namedWindow('test')
     count = 0
     previous = ''
     found = False
-    # imNum = 0
+    imNum = 0
     sname = ''
     while True:
         ret,frame = cam.read()
         if not ret:
             print('failed to grab frame')
         if found:
-            k = cv2.waitKey(1)
+            k = cv2.waitKey(2)
             if k%256 == 13:
                 print('accepted')
                 foil = False
                 save(name, num, prices['usd'], foil, csvWriter)
                 sname=''
+                imNum = 0
                 found=False
             elif k%256 == 27:
                 print('reset')
                 sname=''
+                imNum = 0
                 found=False
             elif k%256 == 9:
                 print('accepted foil')
                 foil = True
                 save(name, num, prices['usd_foil'], foil, csvWriter)
                 sname=''
+                imNum = 0
                 found=False
             elif chr(k%256) in string.printable:
                 # print(k)
                 sname+=chr(k%256)
+                imNum = 0
                 print(sname)
                 found=False
-            # if k%256 == 0:
-            #     imNum+=1
-            #     found=False
-            #     if imNum >= len(rets):
-            #         print('nope')
-            #         imNum = 0
+            if k%256 == 0:
+                imNum+=1
+                found=False
+                if imNum >= len(rets) or rets[imNum][3] <= boudingScore:
+                    print('nope')
+                    imNum = 0
             continue
-        img, rets = findBoundingBox(collection, frame, sname)
+        if imNum == 0:
+            img, rets = findBoundingBox(collection, frame, sname)
         if len(rets) == 0:
             sname = ''
             print('invalid name')
             continue
-        name, num, prices, score = rets[0]
+        name, num, prices, score = rets[imNum]
         boundImg = img.copy()
-        if score > .80 or sname != '':
-            print(num, score)
-            for ret in rets[1:]:
-                if ret[0] == name:
-                    print('\t',ret[1], ret[3])
+        if score > boudingScore or sname != '':
+            # for ret in rets[1:]:
+            #     if ret[0] == name:
+            #         print('\t',ret[1], ret[3])
             bottomLeftCornerOfText = (5,60)
             cv2.putText(boundImg,name, 
                 bottomLeftCornerOfText, 
@@ -127,14 +132,29 @@ def getImage(collection, csvWriter):
                 fontColor,
                 thickness,
                 lineType)
-            bottomLeftCornerOfText = (5,100)
-            cv2.putText(boundImg,num, 
-                bottomLeftCornerOfText, 
-                font, 
-                fontScale,
-                fontColor,
-                thickness,
-                lineType)
+            for i in range(len(rets)):
+                if rets[i][3] <= boudingScore:
+                    break
+                x = i%2
+                y = i//2
+                bottomLeftCornerOfText = (5+x*100,100+y*20)
+                cv2.putText(boundImg,rets[i][1], 
+                    bottomLeftCornerOfText, 
+                    font, 
+                    fontScale,
+                    fontColor,
+                    thickness,
+                    lineType)
+                if i == imNum:
+                    bottomLeftCornerOfText = (5+x*100,105+y*20)
+                    underline = '_'*len(num)
+                    cv2.putText(boundImg,underline, 
+                        bottomLeftCornerOfText, 
+                        font, 
+                        fontScale,
+                        fontColor,
+                        thickness,
+                        lineType)
             bottomLeftCornerOfText = (5,140)
             try:
                 cv2.putText(boundImg,'non foil: $'+prices['usd'], 
@@ -146,7 +166,7 @@ def getImage(collection, csvWriter):
                 lineType)
             except:
                 pass
-            bottomLeftCornerOfText = (5,180)
+            bottomLeftCornerOfText = (5,160)
             try:
                 cv2.putText(boundImg,'foil: $'+prices['usd_foil'], 
                 bottomLeftCornerOfText, 
@@ -214,7 +234,7 @@ def compareEmbedding(collection, embeding, name):
     }
     
     sset,_,scnum = name.partition('-')
-    result = collection.search(embeding.numpy().tolist(), "embedding", search_params, expr=f'searchName like "{name}%" or (set like "{sset}%" and collector_number like "{scnum}%")',limit=10, output_fields=["id", "set","collector_number","prices","name"])
+    result = collection.search(embeding.numpy().tolist(), "embedding", search_params, expr=f'searchName like "{name}%" or (set like "{sset}%" and collector_number like "{scnum}%")',limit=4, output_fields=["id", "set","collector_number","prices","name"])
     ret = []
     for i in range(len(result[0])):
         hit = result[0][i]

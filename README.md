@@ -17,7 +17,10 @@
         - press escape to tell the camera to look again
         - press enter to add the standard card info to your csv along with price
         - press tab to add the foil card info to your csv along with price
-        - press an ascii character (letter, number, symbol) to refine the search to both cards with a name starting with that string, and card set numbers (SET-123) starting with that string.
+        - press any arrow key to move to the next possible card
+        - press an ascii character (letter, number, symbol) to refine the search to both cards with a name starting with that string, and collector set numbers (SET-123) starting with that string.
     - If keyboard input isn't be registered, click in the image window and try again
+    - The multiple collector set numbers show the top (max 4) cards matching that embedding, most cards will be in that list but if they aren't use the text search or press escape and refocus the camera or move/turn the card
+    - The zoomed image shows a zoomed and cropped lower left corner to more easilly see the set and number. This is not used in the embedding and is only shown for you.
 6. while not showing card information to gracefully shutdown the program
 
