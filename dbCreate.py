@@ -11,6 +11,9 @@ from pymilvus import (
 from transformers import CLIPProcessor, CLIPModel
 import cv2
 import numpy
+import io
+import json
+import base64
 
 # Tested using Commander's Sphere
 # model_ckpt = "openai/clip-vit-base-patch32" # correct set between 3-8
@@ -30,7 +33,7 @@ def addToDb(collection, embedding, cset, collector_number, prices, name):
         "metric_type": "COSINE",
         "params": {"nprobe": 512},
     }
-    result = collection.search(embedding.tolist(), "embedding", search_params, limit=1, output_fields=["set"])
+    result = collection.search(embedding, "embedding", search_params, limit=1, output_fields=["set"])
     if len(result[0])>0 and result[0][0].distance > 0.99999:
         return
     entity = [
@@ -47,6 +50,7 @@ def addToDb(collection, embedding, cset, collector_number, prices, name):
 
 def save(url, name,cset, embeddingId):
     print('\tcomputing embedding')
+    embeddingId = embeddingId.replace('/','').partition('?')[0]
     name = clean(name)
     if not os.path.exists(name):
         if not os.path.exists(os.path.dirname(name)):
@@ -62,13 +66,23 @@ def save(url, name,cset, embeddingId):
     new_batch.to('cuda')
     output = model(**new_batch)
     embedding = output.image_embeds.cpu().detach().numpy()
-    embeddingPath = os.path.join('embeddings',cset)
-    if not os.path.exists(embeddingPath):
-        os.mkdir(embeddingPath)
-    embeddingId = embeddingId.replace('/','').partition('?')[0]
-    embeddingPath = os.path.join(embeddingPath, embeddingId+'.npy')
-    numpy.save(embeddingPath, embedding, allow_pickle=False)
-    return embedding
+    f = io.BytesIO()
+    numpy.save(f, embedding, allow_pickle=False)
+    f.seek(0)
+    blob = {
+        'embeddingId':embeddingId,
+        'embedding':base64.b64encode(f.read()).decode('ascii')
+    }
+    jblob = json.dumps(blob)
+    embeddingPath = os.path.join('embeddings',cset+'.jsonl')
+    if os.path.exists(embeddingPath):
+        f = open(embeddingPath, 'a')
+        jblob = '\n'+jblob
+    else:
+        f = open(embeddingPath, 'w')
+    f.write(jblob)
+    f.close()
+    return embedding.tolist()
 
 def clean(name):
     unapproved = '*★†Φ'
@@ -78,10 +92,22 @@ def clean(name):
 
 def loadEmbedding(cset,embeddingId):
     embeddingId = embeddingId.replace('/','').partition('?')[0]
-    embeddingPath = os.path.join('embeddings',cset,embeddingId+'.npy')
+    embeddingPath = os.path.join('embeddings',cset+'.jsonl')
     if os.path.exists(embeddingPath):
-        embedding = numpy.load(embeddingPath, allow_pickle=False)
-        return embedding
+        lines = open(embeddingPath).read().splitlines()
+        for line in lines:
+            try:
+                print(line[28552])
+            except:
+                pass
+            blob = json.loads(line)
+            if blob['embeddingId'] == embeddingId:
+                embedding = base64.b64decode(blob['embedding'])
+                f = io.BytesIO()
+                f.write(embedding)
+                f.seek(0)
+                embedding = numpy.load(f, allow_pickle=False)
+                return embedding.tolist()
     return None
 
 def run(collection):
