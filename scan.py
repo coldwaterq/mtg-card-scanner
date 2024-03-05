@@ -25,15 +25,9 @@ import sys
 # model_ckpt = "laion/CLIP-ViT-H-14-laion2B-s32B-b79K"
 model_ckpt = "laion/CLIP-ViT-bigG-14-laion2B-39B-b160k" 
 # model_ckpt = "facebook/metaclip-b32-400m"
-image_processor = CLIPProcessor.from_pretrained(model_ckpt)
-model = CLIPModel.from_pretrained(model_ckpt)
+image_processor = None
+model = None
 
-# model_ckpt = "google/vit-base-patch16-224" all wrong
-# image_processor = AutoImageProcessor.from_pretrained(model_ckpt)
-# model = AutoModel.from_pretrained(model_ckpt)
-
-model.eval()
-model.to('cuda')
 
 font                   = cv2.FONT_HERSHEY_SIMPLEX
 fontScale              = .5
@@ -41,14 +35,24 @@ fontColor              = (255,255,255)
 thickness              = 1
 lineType               = 2
 
+
+def loadModel():
+    global image_processor, model
+    image_processor = CLIPProcessor.from_pretrained(model_ckpt)
+    model = CLIPModel.from_pretrained(model_ckpt)
+    model.eval()
+    model.to('cuda')
+
+
 def save(name, num, prices, foil, csvWriter):
     csvWriter.writerow([num, name, prices, foil])
 
 def openCsv():
-    if len(sys.argv) != 2:
-        print(sys.argv[0]+' CSVFILE')
+    if len(sys.argv) != 3:
+        print(sys.argv[0]+' CSV_FILE_NAME DESIRED_CARDS_PER_FILE')
         exit()
     name = sys.argv[1]
+    desriedLines = int(sys.argv[2])
     if not name.endswith('.csv'):
         name += '.csv'
     onedrive = os.environ["OneDrive"]
@@ -58,14 +62,20 @@ def openCsv():
     name = os.path.join(mtgDocDir, name)
 
     if os.path.exists(name):
+        with open(name) as f:
+            lines = sum(1 for _ in f)
         print('file already exists, appending')
         csvwriter = csv.writer(open(name,'a', newline=''))
     else:
         csvwriter = csv.writer(open(name,'w', newline=''))
-    return(csvwriter)
+        lines = 0
+    if lines >= desriedLines:
+        print(name,'already has',lines,'entries')
+        exit()
+    return(csvwriter, lines, desriedLines)
 
 
-def getImage(collection, csvWriter):
+def getImage(collection, csvWriter, lines, desiredLines):
     boudingScore = 0.80
     cam = cv2.VideoCapture(0,cv2.CAP_DSHOW)
     cv2.namedWindow('test')
@@ -81,9 +91,13 @@ def getImage(collection, csvWriter):
         if found:
             k = cv2.waitKey(2)
             if k%256 == 13:
-                print('accepted')
+                lines+=1
+                print('accepted',lines)
                 foil = False
                 save(name, num, prices['usd'], foil, csvWriter)
+                if lines >= desiredLines:
+                    print('complete')
+                    break
                 sname=''
                 imNum = 0
                 found=False
@@ -93,9 +107,13 @@ def getImage(collection, csvWriter):
                 imNum = 0
                 found=False
             elif k%256 == 9:
-                print('accepted foil')
+                lines+=1
+                print('accepted foil',lines)
                 foil = True
                 save(name, num, prices['usd_foil'], foil, csvWriter)
+                if lines >= desiredLines:
+                    print('complete')
+                    break
                 sname=''
                 imNum = 0
                 found=False
@@ -133,7 +151,7 @@ def getImage(collection, csvWriter):
                 thickness,
                 lineType)
             for i in range(len(rets)):
-                if rets[i][3] <= boudingScore:
+                if i!= imNum and rets[i][3] <= boudingScore:
                     break
                 x = i%2
                 y = i//2
@@ -254,5 +272,6 @@ def connectDB():
 if __name__ == '__main__':
     collection = connectDB()
     collection.load()
-    csvWriter = openCsv()
-    frame = getImage(collection, csvWriter)
+    csvWriter, lines, desiredLines = openCsv()
+    loadModel()
+    frame = getImage(collection, csvWriter, lines, desiredLines)
