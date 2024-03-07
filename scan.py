@@ -32,9 +32,8 @@ model = None
 font                   = cv2.FONT_HERSHEY_SIMPLEX
 fontScale              = .5
 fontColor              = (255,255,255)
-thickness              = 1
+fontBorder             = (0,0,0)
 lineType               = 2
-
 
 def loadModel():
     global image_processor, model
@@ -75,8 +74,27 @@ def openCsv():
     return(csvwriter, lines, desriedLines)
 
 
+def writeText(boundImg,text, 
+                bottomLeftCornerOfText):
+    thickness=3
+    cv2.putText(boundImg,text, 
+        bottomLeftCornerOfText, 
+        font, 
+        fontScale,
+        fontBorder,
+        thickness,
+        lineType)
+    thickness=1
+    cv2.putText(boundImg,text, 
+        bottomLeftCornerOfText, 
+        font, 
+        fontScale,
+        fontColor,
+        thickness,
+        lineType)
+
 def getImage(collection, csvWriter, lines, desiredLines):
-    boudingScore = 0.80
+    boudingScore = 0.65
     cam = cv2.VideoCapture(0,cv2.CAP_DSHOW)
     cv2.namedWindow('test')
     count = 0
@@ -143,56 +161,31 @@ def getImage(collection, csvWriter, lines, desiredLines):
             #     if ret[0] == name:
             #         print('\t',ret[1], ret[3])
             bottomLeftCornerOfText = (5,60)
-            cv2.putText(boundImg,name, 
-                bottomLeftCornerOfText, 
-                font, 
-                fontScale,
-                fontColor,
-                thickness,
-                lineType)
+            writeText(boundImg,name, 
+                bottomLeftCornerOfText)
             for i in range(len(rets)):
                 if i!= imNum and rets[i][3] <= boudingScore:
                     break
                 x = i%2
                 y = i//2
                 bottomLeftCornerOfText = (5+x*100,100+y*20)
-                cv2.putText(boundImg,rets[i][1], 
-                    bottomLeftCornerOfText, 
-                    font, 
-                    fontScale,
-                    fontColor,
-                    thickness,
-                    lineType)
+                writeText(boundImg,rets[i][1], 
+                    bottomLeftCornerOfText)
                 if i == imNum:
                     bottomLeftCornerOfText = (5+x*100,105+y*20)
                     underline = '_'*len(num)
-                    cv2.putText(boundImg,underline, 
-                        bottomLeftCornerOfText, 
-                        font, 
-                        fontScale,
-                        fontColor,
-                        thickness,
-                        lineType)
+                    writeText(boundImg,underline, 
+                        bottomLeftCornerOfText)
             bottomLeftCornerOfText = (5,140)
             try:
-                cv2.putText(boundImg,'non foil: $'+prices['usd'], 
-                bottomLeftCornerOfText, 
-                font, 
-                fontScale,
-                fontColor,
-                thickness,
-                lineType)
+                writeText(boundImg,'non foil: $'+prices['usd'], 
+                bottomLeftCornerOfText)
             except:
                 pass
             bottomLeftCornerOfText = (5,160)
             try:
-                cv2.putText(boundImg,'foil: $'+prices['usd_foil'], 
-                bottomLeftCornerOfText, 
-                font, 
-                fontScale,
-                fontColor,
-                thickness,
-                lineType)
+                writeText(boundImg,'foil: $'+prices['usd_foil'], 
+                bottomLeftCornerOfText)
             except:
                 pass
             found=True
@@ -212,7 +205,9 @@ def getImage(collection, csvWriter, lines, desiredLines):
 
 def findBoundingBox(collection, frame, name):
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    ret,thresh = cv2.threshold(gray,70,255,cv2.THRESH_BINARY)
+    ret,thresh = cv2.threshold(gray,127,255,cv2.THRESH_BINARY)
+    # thresh = cv2.adaptiveThreshold(gray,255,cv2.ADAPTIVE_THRESH_MEAN_C,\
+    #         cv2.THRESH_BINARY,3,2)
     # contours, _ = cv2.findContours(thresh,cv2.RETR_TREE,cv2.CHAIN_APPROX_NONE)
     contours, hierarchy = cv2.findContours(thresh,cv2.RETR_TREE,cv2.CHAIN_APPROX_SIMPLE)
 
