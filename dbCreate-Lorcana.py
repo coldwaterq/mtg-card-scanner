@@ -104,7 +104,7 @@ def clean(name):
 
 def loadEmbedding(cset,embeddingId):
     embeddingId = embeddingId.replace('/','').partition('?')[0]
-    embeddingPath = os.path.join('embeddings','s-'+cset+'.jsonl')
+    embeddingPath = os.path.join('embeddings\\lorcana','s-'+cset+'.jsonl')
     if os.path.exists(embeddingPath):
         lines = open(embeddingPath).read().splitlines()
         for line in lines:
@@ -133,11 +133,9 @@ def run(collection):
 
     sets = requests.get('https://api.lorcast.com/v0/sets').json()
     for s in sets['results']:
-        if not s['code'].isdigit():
-            continue
-        cardsUrl = 'https://api.lorcast.com/v0/cards/search?q=set:'+s['code']
+        cardsUrl = 'https://api.lorcast.com/v0/sets/'+s['code']+'/cards'
         cards = requests.get(cardsUrl).json()
-        cards = cards['results']
+        # cards = cards['results']
 
         for i in range(len(cards)):
             card = cards[i]

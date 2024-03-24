@@ -79,7 +79,7 @@ def save(url, name,cset, embeddingId):
         'embedding':base64.b64encode(f.read()).decode('ascii')
     }
     jblob = json.dumps(blob)
-    embeddingPath = os.path.join('embeddings','s-'+cset+'.jsonl')
+    embeddingPath = os.path.join('embeddings','mtg','s-'+cset+'.jsonl')
     if os.path.exists(embeddingPath):
         f = open(embeddingPath, 'a')
         jblob = '\n'+jblob
@@ -97,7 +97,7 @@ def clean(name):
 
 def loadEmbedding(cset,embeddingId):
     embeddingId = embeddingId.replace('/','').partition('?')[0]
-    embeddingPath = os.path.join('embeddings','s-'+cset+'.jsonl')
+    embeddingPath = os.path.join('embeddings','mtg','s-'+cset+'.jsonl')
     if os.path.exists(embeddingPath):
         lines = open(embeddingPath).read().splitlines()
         for line in lines:
@@ -123,7 +123,7 @@ def run(collection):
     onedrive = os.environ["OneDrive"]
 
     # the directory to write cards to.
-    cacheDir = os.path.join(onedrive, "Pictures\\cards")
+    cacheDir = os.path.join(onedrive, "Pictures\\cards\\mtg")
 
     bulkdata = requests.get('https://api.scryfall.com/bulk-data').json()
     cardsUrl = ''

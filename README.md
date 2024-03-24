@@ -1,8 +1,22 @@
+Using Embedings (cool AI things) this tool scans cards and matches them to the cards in the database. This was developped for MTG where other card scanners exist, but assuming you have a GPU to enable the embedding calculation to go quickly, the process is much faster than other tools I've used, and seems to get much better results based on my testing. This method is also much easier to adapt to new cards, which is what made it easy to support lorcana, and easy to add new sets as soon as images of the cards are available.
+
+Made possible thanks to [https://lorcast.com/](https://lorcast.com/). The APIs simple inteface and usability made developing this tool increadibly simple.
+
 ### Setup
+1. Install python
+    - https://www.python.org/downloads/
 1. install podman and podman-compose
+    - `pip3 install podman-compose`
 2. Install Milvus
+    - https://podman-desktop.io/
+    - https://github.com/containers/podman/releases
+    - `podman machine init`
+    - `podman machine start`
     - `podman compose up -d`
-    - docker-compose.yml in this is downloaded from https://github.com/milvus-io/milvus/releases/
+4. install dependencies
+    - `pip install requests pymilvus transformers opencv-python pillow pillow-avif-plugin`
+5. install pytorch
+    - `pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118`
 3. python dbcreate.py
     - this downloads the card images into onedrive, calculates the embedding, and adds that to the db
     - line 95 to 100 are commented out and can be used to only download a specific set, card name, or image type
