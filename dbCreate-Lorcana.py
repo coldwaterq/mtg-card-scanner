@@ -66,12 +66,18 @@ def save(url, name,cset, embeddingId):
                 for chunk in r:
                     f.write(chunk)
         print("\tdownloaded")
-        # pip install pillow-avif-plugin
-        from PIL import Image
+        # only needed if you are downloading
+        # I know it's ugly, but saving most people
+        # the need to install
+        from PIL import Image,UnidentifiedImageError
         import pillow_avif
 
-        img = Image.open('temp.avif')
+        try:
+            img = Image.open('temp.avif')
+        except UnidentifiedImageError:
+            return None
         img.save(name)
+        os.remove('temp.avif')
         print ("\tconverted")
     img = cv2.imread(name)
     new_batch = image_processor(text=[''],images=img, return_tensors="pt")
@@ -149,6 +155,9 @@ def run(collection):
                 if embedding is None:
                     cLoc = os.path.join(cacheDir, year+'-'+s['code'], s['code']+"-"+card['collector_number']+".jpg")
                     embedding = save(card['image_uris']['digital'][image_type], cLoc,s['code'],card['image_uris']['digital'][image_type].partition(image_type)[2])
+                if embedding is None:
+                    print('\tno good image found')
+                    continue
                 addToDb(collection, embedding, s['code'], card['collector_number'], card['prices'], card['name'])
             else:
                 raise Exception('multi-faced cards not working in lorcana yet')
