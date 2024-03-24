@@ -33,9 +33,15 @@ def addToDb(collection, embedding, cset, collector_number, prices, name):
         "metric_type": "COSINE",
         "params": {"nprobe": 512},
     }
-    result = collection.search(embedding, "embedding", search_params, limit=1, output_fields=["set"])
+    result = collection.search(embedding, "embedding", search_params, limit=1, output_fields=["prices"])
     if len(result[0])>0 and result[0][0].distance > 0.99999:
-        return
+        p = result[0][0].entity.get("prices")
+        if p==prices:
+            return
+        ret = collection.delete(f"id in [ {result[0][0].id} ]")
+        print("\tupdating")
+    else:
+        print("\tinserting")
     entity = [
         [cset],
         [collector_number],
@@ -45,7 +51,6 @@ def addToDb(collection, embedding, cset, collector_number, prices, name):
         [embedding[0]]
     ]
     insert_result = collection.insert(entity)
-    print(insert_result)
     
 
 def save(url, name,cset, embeddingId):

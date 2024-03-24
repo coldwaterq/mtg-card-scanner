@@ -224,12 +224,13 @@ def findBoundingBox(collection, frame, name):
         if h/w > 1 and h/w < 3 and moments['m00'] > 10000:
             foundContours.append(i)
             crop_img = frame[y:y+h, x:x+w]
+            crop_img = cv2.rotate(crop_img, cv2.ROTATE_180)
             embeding = computeEmbedding(crop_img)
             ret = compareEmbedding(collection, embeding, name)
-            lowerleftCorner = crop_img[8*h//9:h,0:w//3]
-            lowerleftCorner = cv2.resize(lowerleftCorner, (w,h//3),interpolation = cv2.INTER_LINEAR)
-            shape = lowerleftCorner.shape
-            crop_img[h-shape[0]:h,0:shape[1]] = lowerleftCorner
+            # lowerleftCorner = crop_img[8*h//9:h,0:w//3]
+            # lowerleftCorner = cv2.resize(lowerleftCorner, (w,h//3),interpolation = cv2.INTER_LINEAR)
+            # shape = lowerleftCorner.shape
+            # crop_img[h-shape[0]:h,0:shape[1]] = lowerleftCorner
             return crop_img, ret
     return img1,[[None, None, None, -1.0]]
 
