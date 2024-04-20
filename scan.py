@@ -47,6 +47,18 @@ def loadModel():
 
 
 def save(name, num, prices, foil, csvWriter):
+    try:
+        cv2.destroyWindow("important")
+    except:
+        pass
+    if prices == None:
+        prices = "0.01"
+    if float(prices) > 2:
+        img = np.zeros([220, 400, 3])
+        img[:,:,2]+=255
+        writeText(img,name+" $"+prices+" greater than $2", 
+                (10,100))
+        cv2.imshow("important", img)
     csvWriter.writerow([num, name, prices, foil])
 
 def openCsv():
@@ -121,7 +133,7 @@ def getImage(collection, csvWriter, lines, desiredLines, s):
                 try:
                     p = prices['usd']
                 except:
-                    p = 0.01
+                    p = "0.01"
                 save(name, num, p, foil, csvWriter)
                 if lines >= desiredLines:
                     print('complete')
@@ -167,8 +179,11 @@ def getImage(collection, csvWriter, lines, desiredLines, s):
                 s+='-'
             img, rets = findBoundingBox(collection, frame, s+sname)
         if len(rets) == 0:
-            sname = ''
-            print('invalid name')
+            if sname != '':
+                sname = ''
+                print('invalid name')
+            
+            cv2.imshow('test', img)
             continue
         name, num, prices, score = rets[imNum]
         boundImg = img.copy()
@@ -248,7 +263,7 @@ def findBoundingBox(collection, frame, name):
             # shape = lowerleftCorner.shape
             # crop_img[h-shape[0]:h,0:shape[1]] = lowerleftCorner
             return crop_img, ret
-    return img1,[[None, None, None, -1.0]]
+    return img1,[]
 
 def computeEmbedding(frame):
     new_batch = image_processor(text=[''],images=frame, return_tensors="pt")
