@@ -19,6 +19,9 @@ from pymilvus import (
 )
 import sys
 
+cardSystem = "mtg"
+# cardSystem = "lorcana"
+
 # model_ckpt = "openai/clip-vit-base-patch32"
 # model_ckpt = "openai/clip-vit-large-patch14-336"
 # model_ckpt = "openai/clip-vit-large-patch14"
@@ -47,9 +50,12 @@ def save(name, num, prices, foil, csvWriter):
     csvWriter.writerow([num, name, prices, foil])
 
 def openCsv():
-    if len(sys.argv) != 3:
-        print(sys.argv[0]+' CSV_FILE_NAME DESIRED_CARDS_PER_FILE')
+    if len(sys.argv) < 3:
+        print(sys.argv[0]+' CSV_FILE_NAME DESIRED_CARDS_PER_FILE [set]')
         exit()
+    s = ''
+    if len(sys.argv) >= 4:
+        s = sys.argv[3]
     name = sys.argv[1]
     desriedLines = int(sys.argv[2])
     if not name.endswith('.csv'):
@@ -57,8 +63,8 @@ def openCsv():
     onedrive = os.environ["OneDrive"]
 
     # the directory to write cards to.
-    mtgDocDir = os.path.join(onedrive, "Documents\\Real World\\Collections\\mtg")
-    name = os.path.join(mtgDocDir, name)
+    docDir = os.path.join(onedrive, "Documents\\Real World\\Collections\\"+cardSystem)
+    name = os.path.join(docDir, name)
 
     if os.path.exists(name):
         with open(name) as f:
@@ -71,7 +77,7 @@ def openCsv():
     if lines >= desriedLines:
         print(name,'already has',lines,'entries')
         exit()
-    return(csvwriter, lines, desriedLines)
+    return(csvwriter, lines, desriedLines, s)
 
 
 def writeText(boundImg,text, 
@@ -93,8 +99,8 @@ def writeText(boundImg,text,
         thickness,
         lineType)
 
-def getImage(collection, csvWriter, lines, desiredLines):
-    boudingScore = 0.65
+def getImage(collection, csvWriter, lines, desiredLines, s):
+    boudingScore = 0.5
     cam = cv2.VideoCapture(0,cv2.CAP_DSHOW)
     cv2.namedWindow('test')
     count = 0
@@ -112,7 +118,11 @@ def getImage(collection, csvWriter, lines, desiredLines):
                 lines+=1
                 print('accepted',lines)
                 foil = False
-                save(name, num, prices['usd'], foil, csvWriter)
+                try:
+                    p = prices['usd']
+                except:
+                    p = 0.01
+                save(name, num, p, foil, csvWriter)
                 if lines >= desiredLines:
                     print('complete')
                     break
@@ -128,7 +138,11 @@ def getImage(collection, csvWriter, lines, desiredLines):
                 lines+=1
                 print('accepted foil',lines)
                 foil = True
-                save(name, num, prices['usd_foil'], foil, csvWriter)
+                try:
+                    p = prices['usd_foil']
+                except:
+                    p = prices['usd']
+                save(name, num, p, foil, csvWriter)
                 if lines >= desiredLines:
                     print('complete')
                     break
@@ -149,7 +163,9 @@ def getImage(collection, csvWriter, lines, desiredLines):
                     imNum = 0
             continue
         if imNum == 0:
-            img, rets = findBoundingBox(collection, frame, sname)
+            if s != '' and s[-1]!='-':
+                s+='-'
+            img, rets = findBoundingBox(collection, frame, s+sname)
         if len(rets) == 0:
             sname = ''
             print('invalid name')
@@ -178,13 +194,13 @@ def getImage(collection, csvWriter, lines, desiredLines):
                         bottomLeftCornerOfText)
             bottomLeftCornerOfText = (5,140)
             try:
-                writeText(boundImg,'non foil: $'+prices['usd'], 
+                writeText(boundImg,'non foil: $'+str(prices['usd']), 
                 bottomLeftCornerOfText)
-            except:
+            except Exception as e:
                 pass
             bottomLeftCornerOfText = (5,160)
             try:
-                writeText(boundImg,'foil: $'+prices['usd_foil'], 
+                writeText(boundImg,'foil: $'+str(prices['usd_foil']), 
                 bottomLeftCornerOfText)
             except:
                 pass
@@ -261,13 +277,13 @@ def compareEmbedding(collection, embeding, name):
 def connectDB():
     connections.connect("default", host="localhost", port="19530")
 
-    if utility.has_collection('mtgCards', using='default'):
-        return Collection('mtgCards')
+    if utility.has_collection(cardSystem+'Cards', using='default'):
+        return Collection(cardSystem+'Cards')
     raise(Exception("db doesn't exist"))
 
 if __name__ == '__main__':
     collection = connectDB()
     collection.load()
-    csvWriter, lines, desiredLines = openCsv()
+    csvWriter, lines, desiredLines, s = openCsv()
     loadModel()
-    frame = getImage(collection, csvWriter, lines, desiredLines)
+    frame = getImage(collection, csvWriter, lines, desiredLines, s)

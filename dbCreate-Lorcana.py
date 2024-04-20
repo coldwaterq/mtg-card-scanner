@@ -55,30 +55,33 @@ def addToDb(collection, embedding, cset, collector_number, prices, name):
 
 def save(url, name,cset, embeddingId):
     print('\tcomputing embedding')
-    embeddingId = embeddingId.replace('/','').partition('?')[0]
+    embeddingId = embeddingId.replace('/','').replace('?','-')
     name = clean(name)
-    if not os.path.exists(name):
-        if not os.path.exists(os.path.dirname(name)):
-            os.mkdir(os.path.dirname(name))
-        r = requests.get(url, stream=True)
-        if r.status_code == 200:
-            with open('temp.avif', 'wb') as f:
-                for chunk in r:
-                    f.write(chunk)
-        print("\tdownloaded")
-        # only needed if you are downloading
-        # I know it's ugly, but saving most people
-        # the need to install
-        from PIL import Image,UnidentifiedImageError
-        import pillow_avif
+    
+    # redownload, because the id may have changed because the image updated
+    if not os.path.exists(os.path.dirname(name)):
+        os.mkdir(os.path.dirname(name))
+    r = requests.get(url, stream=True)
+    if r.status_code == 200:
+        with open('temp.avif', 'wb') as f:
+            for chunk in r:
+                f.write(chunk)
+    print("\tdownloaded")
+    # only needed if you are downloading
+    # I know it's ugly, but saving most people
+    # the need to install
+    from PIL import Image,UnidentifiedImageError
+    import pillow_avif
 
-        try:
-            img = Image.open('temp.avif')
-        except UnidentifiedImageError:
-            return None
-        img.save(name)
-        os.remove('temp.avif')
-        print ("\tconverted")
+    try:
+        img = Image.open('temp.avif')
+    except UnidentifiedImageError:
+        return None
+    img.save(name)
+    os.remove('temp.avif')
+    print ("\tconverted")
+
+    # create an embedding
     img = cv2.imread(name)
     new_batch = image_processor(text=[''],images=img, return_tensors="pt")
     new_batch.to('cuda')
@@ -109,7 +112,7 @@ def clean(name):
     return name
 
 def loadEmbedding(cset,embeddingId):
-    embeddingId = embeddingId.replace('/','').partition('?')[0]
+    embeddingId = embeddingId.replace('/','').replace('?','-')
     embeddingPath = os.path.join('embeddings\\lorcana','s-'+cset+'.jsonl')
     if os.path.exists(embeddingPath):
         lines = open(embeddingPath).read().splitlines()
@@ -158,7 +161,10 @@ def run(collection):
                 if embedding is None:
                     print('\tno good image found')
                     continue
-                addToDb(collection, embedding, s['code'], card['collector_number'], card['prices'], card['name'])
+                name = card['name']
+                if card['version'] is not None:
+                    name += ' - '+card['version']
+                addToDb(collection, embedding, s['code'], card['collector_number'], card['prices'], name)
             else:
                 raise Exception('multi-faced cards not working in lorcana yet')
                 
