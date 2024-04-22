@@ -114,6 +114,8 @@ def writeText(boundImg,text,
 def getImage(collection, csvWriter, lines, desiredLines, s):
     boudingScore = 0.5
     cam = cv2.VideoCapture(0,cv2.CAP_DSHOW)
+    cam.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
+    cam.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
     cv2.namedWindow('test')
     count = 0
     previous = ''
@@ -182,10 +184,9 @@ def getImage(collection, csvWriter, lines, desiredLines, s):
             if sname != '':
                 sname = ''
                 print('invalid name')
-            
-            cv2.imshow('test', img)
-            continue
-        name, num, prices, score = rets[imNum]
+            score = 0
+        else:
+            name, num, prices, score = rets[imNum]
         boundImg = img.copy()
         if score > boudingScore or sname != '':
             # for ret in rets[1:]:
