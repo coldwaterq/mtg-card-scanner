@@ -18,18 +18,8 @@ from pymilvus import (
     Collection,
 )
 import sys
+import util
 
-cardSystem = "mtg"
-# cardSystem = "lorcana"
-
-# model_ckpt = "openai/clip-vit-base-patch32"
-# model_ckpt = "openai/clip-vit-large-patch14-336"
-# model_ckpt = "openai/clip-vit-large-patch14"
-# model_ckpt = "laion/CLIP-ViT-H-14-laion2B-s32B-b79K"
-model_ckpt = "laion/CLIP-ViT-bigG-14-laion2B-39B-b160k" 
-# model_ckpt = "facebook/metaclip-b32-400m"
-image_processor = None
-model = None
 
 
 font                   = cv2.FONT_HERSHEY_SIMPLEX
@@ -37,13 +27,6 @@ fontScale              = .5
 fontColor              = (255,255,255)
 fontBorder             = (0,0,0)
 lineType               = 2
-
-def loadModel():
-    global image_processor, model
-    image_processor = CLIPProcessor.from_pretrained(model_ckpt)
-    model = CLIPModel.from_pretrained(model_ckpt)
-    model.eval()
-    model.to('cuda')
 
 
 def save(name, num, prices, foil, csvWriter):
@@ -61,7 +44,7 @@ def save(name, num, prices, foil, csvWriter):
         cv2.imshow("important", img)
     csvWriter.writerow([num, name, prices, foil])
 
-def openCsv():
+def openCsv(config):
     if len(sys.argv) < 3:
         print(sys.argv[0]+' CSV_FILE_NAME DESIRED_CARDS_PER_FILE [set]')
         exit()
@@ -75,7 +58,7 @@ def openCsv():
     onedrive = os.environ["OneDrive"]
 
     # the directory to write cards to.
-    docDir = os.path.join(onedrive, "Documents\\Real World\\Collections\\"+cardSystem)
+    docDir = os.path.join(onedrive, "Documents\\Real World\\Collections\\"+config['type'])
     name = os.path.join(docDir, name)
 
     if os.path.exists(name):
@@ -111,7 +94,7 @@ def writeText(boundImg,text,
         thickness,
         lineType)
 
-def getImage(collection, csvWriter, lines, desiredLines, s):
+def getImage(collection, csvWriter, lines, desiredLines, s, config, model):
     boudingScore = 0.5
     cam = cv2.VideoCapture(0,cv2.CAP_DSHOW)
     cam.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
@@ -179,7 +162,7 @@ def getImage(collection, csvWriter, lines, desiredLines, s):
         if imNum == 0:
             if s != '' and s[-1]!='-':
                 s+='-'
-            img, rets = findBoundingBox(collection, frame, s+sname)
+            img, rets = findBoundingBox(collection, frame, s+sname, model)
         if len(rets) == 0:
             if sname != '':
                 sname = ''
@@ -235,41 +218,53 @@ def getImage(collection, csvWriter, lines, desiredLines, s):
     cv2.destroyAllWindows()
     return frame
 
-def findBoundingBox(collection, frame, name):
+def findBoundingBox(collection, frame, name, model):
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     ret,thresh = cv2.threshold(gray,127,255,cv2.THRESH_BINARY)
     # thresh = cv2.adaptiveThreshold(gray,255,cv2.ADAPTIVE_THRESH_MEAN_C,\
     #         cv2.THRESH_BINARY,3,2)
     # contours, _ = cv2.findContours(thresh,cv2.RETR_TREE,cv2.CHAIN_APPROX_NONE)
     contours, hierarchy = cv2.findContours(thresh,cv2.RETR_TREE,cv2.CHAIN_APPROX_SIMPLE)
-
-
-    ### Step #3 - Draw the points as individual circles in the image
-    img1 = frame.copy()
-    foundContours = []
+    # foundContours = []
     for i in range(len(contours)):
-        if hierarchy[0][i][3] in foundContours:
-            foundContours.append(i)
+        
+        rotatedRect = cv2.minAreaRect(contours[i])
+        if rotatedRect[2] > 45:
+            rotation = rotatedRect[2]-90
+            h,w = rotatedRect[1]
+        else:
+            rotation = rotatedRect[2] 
+            w,h = rotatedRect[1]
+        if h <100 or w <100:
             continue
-        x,y,w,h = cv2.boundingRect(contours[i])
+        heightWidthRatio = h/w
         moments = cv2.moments(contours[i])
-        if h/w > 1 and h/w < 3 and moments['m00'] > 10000:
-            foundContours.append(i)
-            crop_img = frame[y:y+h, x:x+w]
+        if heightWidthRatio > 1.1 and heightWidthRatio < 1.5 and  moments['m00'] > 10000:
+            rot_mat = cv2.getRotationMatrix2D(rotatedRect[0], rotation, 1.0)
+            img1 = cv2.warpAffine(frame, rot_mat, frame.shape[1::-1], flags=cv2.INTER_LINEAR)
+            w = int(w)
+            h = int(h)
+            x = int(rotatedRect[0][0]-w//2)
+            y = int(rotatedRect[0][1]-h//2)
+            if y < 0 or x < 0 or h < 0 or w < 0:
+                print(y,x,h,w)
+                continue
+            # x,y,w,h = cv2.boundingRect(countour)
+            crop_img = img1[y:y+h, x:x+w]
             crop_img = cv2.rotate(crop_img, cv2.ROTATE_180)
-            embeding = computeEmbedding(crop_img)
+            embeding = computeEmbedding(crop_img, model)
             ret = compareEmbedding(collection, embeding, name)
             # lowerleftCorner = crop_img[8*h//9:h,0:w//3]
             # lowerleftCorner = cv2.resize(lowerleftCorner, (w,h//3),interpolation = cv2.INTER_LINEAR)
             # shape = lowerleftCorner.shape
             # crop_img[h-shape[0]:h,0:shape[1]] = lowerleftCorner
             return crop_img, ret
-    return img1,[]
+    return frame,[]
 
-def computeEmbedding(frame):
-    new_batch = image_processor(text=[''],images=frame, return_tensors="pt")
+def computeEmbedding(frame, model):
+    new_batch = model[0](text=[''],images=frame, return_tensors="pt")
     new_batch.to('cuda')
-    output = model(**new_batch)
+    output = model[1](**new_batch)
     embeddings = output.image_embeds.cpu().detach()
     return embeddings
 
@@ -290,16 +285,10 @@ def compareEmbedding(collection, embeding, name):
         ret.append((name, num, prices, hit.distance))
     return ret
 
-def connectDB():
-    connections.connect("default", host="localhost", port="19530")
-
-    if utility.has_collection(cardSystem+'Cards', using='default'):
-        return Collection(cardSystem+'Cards')
-    raise(Exception("db doesn't exist"))
-
 if __name__ == '__main__':
-    collection = connectDB()
+    config = util.loadConfig()
+    model = util.loadModel(config)
+    collection = util.connectDB(config)
     collection.load()
     csvWriter, lines, desiredLines, s = openCsv()
-    loadModel()
-    frame = getImage(collection, csvWriter, lines, desiredLines, s)
+    frame = getImage(collection, csvWriter, lines, desiredLines, s, config, model)
