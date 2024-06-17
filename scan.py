@@ -290,5 +290,5 @@ if __name__ == '__main__':
     model = util.loadModel(config)
     collection = util.connectDB(config)
     collection.load()
-    csvWriter, lines, desiredLines, s = openCsv()
+    csvWriter, lines, desiredLines, s = openCsv(config)
     frame = getImage(collection, csvWriter, lines, desiredLines, s, config, model)
