@@ -135,10 +135,9 @@ def runMtg(collection, config, model):
     # Imae types described at https://scryfall.com/docs/api/images
     image_type = 'png'
     # Get OneDrive folder
-    onedrive = os.environ["OneDrive"]
 
     # the directory to write cards to.
-    cacheDir = os.path.join(onedrive, "Pictures\\cards\\mtg")
+    cacheDir = "G:\\My Drive\\cards\\mtg"
 
     bulkdata = requests.get('https://api.scryfall.com/bulk-data').json()
     cardsUrl = ''
@@ -263,7 +262,7 @@ if __name__=='__main__':
     collection = util.connectDB(config, create=True)
     if config["type"] == "lorcana":
         runLorcana(collection, config, model)
-    elif config["type"] == "mtg":
+    elif config["type"] in ["mtg","mtg-test"]:
         runMtg(collection, config, model)
     else:
         print("invalid config type")

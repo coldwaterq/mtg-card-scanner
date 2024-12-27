@@ -55,10 +55,10 @@ def openCsv(config):
     desriedLines = int(sys.argv[2])
     if not name.endswith('.csv'):
         name += '.csv'
-    onedrive = os.environ["OneDrive"]
+    # onedrive = os.environ["OneDrive"]
 
     # the directory to write cards to.
-    docDir = os.path.join(onedrive, "Documents\\Real World\\Collections\\"+config['type'])
+    docDir = ''#os.path.join(onedrive, "Documents\\Real World\\Collections\\"+config['type'])
     name = os.path.join(docDir, name)
 
     if os.path.exists(name):
