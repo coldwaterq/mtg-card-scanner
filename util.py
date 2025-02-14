@@ -1,5 +1,5 @@
 import json
-from transformers import CLIPProcessor, CLIPModel
+from transformers import CLIPProcessor, CLIPModel, AutoTokenizer
 from pymilvus import (
     connections,
     utility,
@@ -8,6 +8,11 @@ from pymilvus import (
     DataType,
     Collection,
 )
+import numpy as np
+
+def cosineSim(A, embedList):
+    cosine = np.dot(A,B)/(np.linalg.norm(A)*np.linalg.norm(B))
+    return cosine
 
 def loadConfig():
     try:
@@ -35,7 +40,9 @@ def loadModel(config):
     model = CLIPModel.from_pretrained(config["encodingModel"])
     model.eval()
     model.to('cuda')
-    return image_processor, model
+    tokenizer = AutoTokenizer.from_pretrained(config["encodingModel"])
+
+    return image_processor, model, tokenizer
 
 def connectDB(config, create=False):
     dbName = config["type"]+"Cards"

@@ -18,73 +18,74 @@ def printUpdate(s, num, name, *args):
         print('\t',s, num, name)
     print(*args)
 
-def addToDb(collection, embedding, cset, collector_number, prices, name):
-    results = collection.query(
-        expr = f'name == "{name.replace('"','\\"')}" and set == "{cset}" and collector_number == "{collector_number}"',
-        output_fields = ["embedding","prices"],
-    )
-    # search_params = {
-    #     "metric_type": "COSINE",
-    #     "params": {"nprobe": 512},
-    # }
-    # result = collection.search(embedding, "embedding", search_params, limit=1, output_fields=["prices"])
-    found = False
-    for result in results:
-        if np.allclose(embedding, result["embedding"]):
-            p = result["prices"]
-            if p==prices:
-                return
-            ret = collection.delete(f"id in [ {result['id']} ]")
-            global status
-            sys.stdout.write(status+" updating prices for "+cset+"-"+collector_number+"     ")
-            found = True
-    if not found:
-        printUpdate(cset, collector_number, name,"\tinserting")
-    entity = [
-        [cset],
-        [collector_number],
-        [prices],
-        [name],
-        [name.lower()],
-        [embedding[0]]
-    ]
-    insert_result = collection.insert(entity)
+# def addToDb(collection, embedding, cset, collector_number, prices, name):
+#     results = collection.query(
+#         expr = f'name == "{name.replace('"','\\"')}" and set == "{cset}" and collector_number == "{collector_number}"',
+#         output_fields = ["embedding","prices"],
+#     )
+#     # search_params = {
+#     #     "metric_type": "COSINE",
+#     #     "params": {"nprobe": 512},
+#     # }
+#     # result = collection.search(embedding, "embedding", search_params, limit=1, output_fields=["prices"])
+#     found = False
+#     for result in results:
+#         if np.allclose(embedding, result["embedding"]):
+#             p = result["prices"]
+#             if p==prices:
+#                 return
+#             ret = collection.delete(f"id in [ {result['id']} ]")
+#             global status
+#             sys.stdout.write(status+" updating prices for "+cset+"-"+collector_number+"     ")
+#             found = True
+#     if not found:
+#         printUpdate(cset, collector_number, name,"\tinserting")
+#     entity = [
+#         [cset],
+#         [collector_number],
+#         [prices],
+#         [name],
+#         [name.lower()],
+#         [embedding[0]]
+#     ]
+#     insert_result = collection.insert(entity)
 
-def save(url, name,cset,cnum, cname, embeddingId, model):
+
+def save(url, name,cname,csname,cnum, cset,crarity,cprodId, embeddingId, model):
     printUpdate(cset, cnum, cname,'\tcomputing embedding')
     embeddingId = embeddingId.replace('/','').replace('?','-')
     name = clean(name)
     if not os.path.exists(os.path.dirname(name)):
         os.mkdir(os.path.dirname(name))
-    if os.path.exists(name):
-        os.remove(name)
-    r = requests.get(url, stream=True)
-    if r.status_code == 200:
-        if config["type"]=="lorcana":
-            with open('temp.avif', 'wb') as f:
-                for chunk in r:
-                    f.write(chunk)
-            print("\tdownloaded")
-            from PIL import Image,UnidentifiedImageError
-            import pillow_avif
+    if not os.path.exists(name):
+        # os.remove(name)
+        r = requests.get(url, stream=True)
+        if r.status_code == 200:
+            if config["type"]=="lorcana":
+                with open('temp.avif', 'wb') as f:
+                    for chunk in r:
+                        f.write(chunk)
+                print("\tdownloaded")
+                from PIL import Image,UnidentifiedImageError
+                import pillow_avif
 
-            try:
-                img = Image.open('temp.avif')
-                img.save(name)
-            except UnidentifiedImageError:
-                return None
-            finally:
-                os.remove('temp.avif')
-            print ("\tconverted")
+                try:
+                    img = Image.open('temp.avif')
+                    img.save(name)
+                except UnidentifiedImageError:
+                    return None
+                finally:
+                    os.remove('temp.avif')
+                print ("\tconverted")
+            else:
+                with open(name, 'wb') as f:
+                    for chunk in r:
+                        f.write(chunk)
+                print("\tdownloaded")
         else:
-            with open(name, 'wb') as f:
-                for chunk in r:
-                    f.write(chunk)
-            print("\tdownloaded")
-    else:
-        print(r.status_code)
-        print(r.content)
-        return None
+            print(r.status_code)
+            print(r.content)
+            return None
     img = cv2.imread(name)
     new_batch = model[0](text=[''],images=img, return_tensors="pt")
     new_batch.to('cuda')
@@ -94,9 +95,24 @@ def save(url, name,cset,cnum, cname, embeddingId, model):
     numpy.save(f, embedding, allow_pickle=False)
     f.seek(0)
     blob = {
+        'name':cname,
+        'set':csname,
+        'num':cnum,
+        'setCode':cset,
+        'rarity':crarity,
+        'prodId':cprodId,
         'embeddingId':embeddingId,
-        'embedding':base64.b64encode(f.read()).decode('ascii')
+        'embedding':base64.b64encode(f.read()).decode('ascii'),
     }
+    setPart = img[int(img.shape[0]/6*5):img.shape[0],:]
+    new_batch = model[0](text=[''],images=setPart, return_tensors="pt")
+    new_batch.to('cuda')
+    output = model[1](**new_batch)
+    embedding = output.image_embeds.cpu().detach().numpy()
+    f = io.BytesIO()
+    numpy.save(f, embedding, allow_pickle=False)
+    f.seek(0)
+    blob['partialEmbedding'] = base64.b64encode(f.read()).decode('ascii')
     jblob = json.dumps(blob)
     embeddingPath = os.path.join('embeddings',config["type"],'s-'+cset+'.jsonl')
     if os.path.exists(embeddingPath):
@@ -131,7 +147,7 @@ def loadEmbedding(cset,embeddingId):
     return None
 
 def runMtg(collection, config, model):
-    collection.load()
+    # collection.load()
     # Imae types described at https://scryfall.com/docs/api/images
     image_type = 'png'
     # Get OneDrive folder
@@ -150,7 +166,8 @@ def runMtg(collection, config, model):
 
     for i in range(len(cards)):
         card = cards[i]
-        
+        if 'tcgplayer_id' not in card.keys():
+            card['tcgplayer_id'] = ''
         global status
         status = '\r'+str(i)+'/'+str(len(cards))
         if i%10==0:
@@ -159,7 +176,7 @@ def runMtg(collection, config, model):
             continue # these are in something else already
         # if card['image_status'] != 'highres_scan':
         #     continue
-        # if card['set'] not in ['mkm','dmu','mom','clb','dbl','mh2','afr','sld']:
+        # if card['set'] not in ['m14','10e','avr']:
         #     continue
         # if card['name'] != "Commander's Sphere":
         #     continue
@@ -170,16 +187,23 @@ def runMtg(collection, config, model):
             embedding = loadEmbedding(card['set'],embeddingId)
             if embedding is None:
                 cLoc = os.path.join(cacheDir, year+'-'+card['set'], card['set']+"-"+card['collector_number']+".jpg")
-                embedding = save(
-                    card['image_uris'][image_type], 
-                    cLoc,
-                    card['set'],
-                    card['collector_number'],
-                    card['name'],
-                    embeddingId, 
-                    model
-                )
-            addToDb(collection, embedding, card['set'], card['collector_number'], card['prices'], card['name'])
+                try:
+                    embedding = save(
+                        card['image_uris'][image_type], 
+                        cLoc,
+                        card['name'],
+                        card['set_name'],
+                        card['collector_number'],
+                        card['set'],
+                        card['rarity'],
+                        card['tcgplayer_id'],
+                        embeddingId, 
+                        model
+                    )
+                except KeyError as e:
+                    print(card)
+                    raise e
+            # addToDb(collection, embedding, card['set'], card['collector_number'], card['prices'], card['name'])
         else:
             if len(card['card_faces']) == 0:
                 continue
@@ -200,13 +224,16 @@ def runMtg(collection, config, model):
                     embedding = save(
                         face['image_uris'][image_type], 
                         cLoc,
-                        card['set'],
-                        card['collector_number'],
                         card['name'],
+                        card['set_name'],
+                        card['collector_number'],
+                        card['set'],
+                        card['rarity'],
+                        card['tcgplayer_id'],
                         embeddingId, 
                         model
                     )
-                addToDb(collection,embedding, card['set'], card['collector_number'], card['prices'], card['name'])
+                # addToDb(collection,embedding, card['set'], card['collector_number'], card['prices'], card['name'])
 
 def runLorcana(collection, config, model):
     collection.load()
@@ -259,11 +286,12 @@ def runLorcana(collection, config, model):
 if __name__=='__main__':
     config = util.loadConfig()
     model = util.loadModel(config)
-    collection = util.connectDB(config, create=True)
+    # collection = util.connectDB(config, create=True)
+    collection = None
     if config["type"] == "lorcana":
         runLorcana(collection, config, model)
     elif config["type"] in ["mtg","mtg-test"]:
         runMtg(collection, config, model)
     else:
         print("invalid config type")
-    collection.flush()  
+    # collection.flush()  

@@ -9,6 +9,7 @@ import json
 import os
 import string
 import csv
+import time
 from pymilvus import (
     connections,
     utility,
@@ -17,9 +18,13 @@ from pymilvus import (
     DataType,
     Collection,
 )
+import base64
+import io
 import sys
+from sklearn.metrics.pairwise import cosine_similarity
 import util
 
+cos = torch.nn.CosineSimilarity(dim=1)
 
 
 font                   = cv2.FONT_HERSHEY_SIMPLEX
@@ -29,7 +34,7 @@ fontBorder             = (0,0,0)
 lineType               = 2
 
 
-def save(name, num, prices, foil, csvWriter):
+def save(name, num, setName, setCode, prodId, prices, foil, csvWriter):
     try:
         cv2.destroyWindow("important")
     except:
@@ -42,7 +47,10 @@ def save(name, num, prices, foil, csvWriter):
         writeText(img,name+" $"+prices+" greater than $2", 
                 (10,100))
         cv2.imshow("important", img)
-    csvWriter.writerow([num, name, prices, foil])
+    printing = "Normal"
+    if foil:
+        printing = "Foil"
+    csvWriter.writerow([1, name, setName, num, setCode, printing, "Near Mint","English", prodId])
 
 def openCsv(config):
     if len(sys.argv) < 3:
@@ -55,10 +63,10 @@ def openCsv(config):
     desriedLines = int(sys.argv[2])
     if not name.endswith('.csv'):
         name += '.csv'
-    # onedrive = os.environ["OneDrive"]
+    
 
     # the directory to write cards to.
-    docDir = ''#os.path.join(onedrive, "Documents\\Real World\\Collections\\"+config['type'])
+    docDir = os.path.join("G:\\My Drive\\", "Documents\\Real World\\Collections\\"+config['type'])
     name = os.path.join(docDir, name)
 
     if os.path.exists(name):
@@ -68,6 +76,7 @@ def openCsv(config):
         csvwriter = csv.writer(open(name,'a', newline=''))
     else:
         csvwriter = csv.writer(open(name,'w', newline=''))
+        csvwriter.writerow(['Quantity','Name','Set','Card Number','Set Code','Printing','Condition','Language','Product ID'])
         lines = 0
     if lines >= desriedLines:
         print(name,'already has',lines,'entries')
@@ -95,16 +104,17 @@ def writeText(boundImg,text,
         lineType)
 
 def getImage(collection, csvWriter, lines, desiredLines, s, config, model):
-    boudingScore = 0.5
     cam = cv2.VideoCapture(0,cv2.CAP_DSHOW)
     cam.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
     cam.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
     cv2.namedWindow('test')
     count = 0
     previous = ''
+    bwThresh = 25
     found = False
     imNum = 0
     sname = ''
+    rets = []
     while True:
         ret,frame = cam.read()
         if not ret:
@@ -112,19 +122,16 @@ def getImage(collection, csvWriter, lines, desiredLines, s, config, model):
         if found:
             k = cv2.waitKey(2)
             if k%256 == 13:
-                lines+=1
+                lines+=len(rets)
                 print('accepted',lines)
                 foil = False
-                try:
-                    p = prices['usd']
-                except:
-                    p = "0.01"
-                save(name, num, p, foil, csvWriter)
+                prices = None
+                for ret in rets:
+                    save(ret['name'], ret['num'], ret['set'], ret['setCode'], ret['prodId'], prices, foil, csvWriter)
                 if lines >= desiredLines:
                     print('complete')
                     break
                 sname=''
-                imNum = 0
                 found=False
             elif k%256 == 27:
                 print('reset')
@@ -132,19 +139,16 @@ def getImage(collection, csvWriter, lines, desiredLines, s, config, model):
                 imNum = 0
                 found=False
             elif k%256 == 9:
-                lines+=1
+                lines+=len(rets)
                 print('accepted foil',lines)
                 foil = True
-                try:
-                    p = prices['usd_foil']
-                except:
-                    p = prices['usd']
-                save(name, num, p, foil, csvWriter)
+                prices = None
+                for ret in rets:
+                    save(ret['name'], ret['num'], ret['set'], ret['setCode'], ret['prodId'], prices, foil, csvWriter)
                 if lines >= desiredLines:
                     print('complete')
                     break
                 sname=''
-                imNum = 0
                 found=False
             elif chr(k%256) in string.printable:
                 # print(k)
@@ -152,57 +156,37 @@ def getImage(collection, csvWriter, lines, desiredLines, s, config, model):
                 imNum = 0
                 print(sname)
                 found=False
-            if k%256 == 0:
-                imNum+=1
-                found=False
-                if imNum >= len(rets) or rets[imNum][3] <= boudingScore:
-                    print('nope')
-                    imNum = 0
             continue
-        if imNum == 0:
-            if s != '' and s[-1]!='-':
-                s+='-'
-            img, rets = findBoundingBox(collection, frame, s+sname, model)
-        if len(rets) == 0:
-            if sname != '':
-                sname = ''
-                print('invalid name')
-            score = 0
-        else:
-            name, num, prices, score = rets[imNum]
+        img, rets = findBoundingBox(collection, frame, s+sname, model,bwThresh)
+        
         boundImg = img.copy()
-        if score > boudingScore or sname != '':
-            # for ret in rets[1:]:
-            #     if ret[0] == name:
-            #         print('\t',ret[1], ret[3])
-            bottomLeftCornerOfText = (5,60)
-            writeText(boundImg,name, 
+        for i in range(len(rets)):
+            ret = rets[i]
+            bottomLeftCornerOfText = (5,60+i*80)
+            writeText(boundImg,ret['name'], 
                 bottomLeftCornerOfText)
-            for i in range(len(rets)):
-                if i!= imNum and rets[i][3] <= boudingScore:
-                    break
-                x = i%2
-                y = i//2
-                bottomLeftCornerOfText = (5+x*100,100+y*20)
-                writeText(boundImg,rets[i][1], 
-                    bottomLeftCornerOfText)
-                if i == imNum:
-                    bottomLeftCornerOfText = (5+x*100,105+y*20)
-                    underline = '_'*len(num)
-                    writeText(boundImg,underline, 
-                        bottomLeftCornerOfText)
-            bottomLeftCornerOfText = (5,140)
-            try:
-                writeText(boundImg,'non foil: $'+str(prices['usd']), 
+            
+        
+            bottomLeftCornerOfText = (5,80+i*80)
+            writeText(boundImg,ret['setCode']+'-'+str(ret['num']), 
                 bottomLeftCornerOfText)
-            except Exception as e:
-                pass
-            bottomLeftCornerOfText = (5,160)
-            try:
-                writeText(boundImg,'foil: $'+str(prices['usd_foil']), 
+            
+            bottomLeftCornerOfText = (5,100+i*80)
+            writeText(boundImg,str(ret['cos']), 
                 bottomLeftCornerOfText)
-            except:
-                pass
+                
+            # bottomLeftCornerOfText = (5,140)
+            # try:
+            #     writeText(boundImg,'non foil: $'+str(prices['usd']), 
+            #     bottomLeftCornerOfText)
+            # except Exception as e:
+            #     pass
+            # bottomLeftCornerOfText = (5,160)
+            # try:
+            #     writeText(boundImg,'foil: $'+str(prices['usd_foil']), 
+            #     bottomLeftCornerOfText)
+            # except:
+            #     pass
             found=True
         cv2.imshow('test', boundImg)
         
@@ -213,21 +197,35 @@ def getImage(collection, csvWriter, lines, desiredLines, s, config, model):
         if k%256 == 32:
             print('leaving')
             break
+        if found!=True:#k%256 == 0:
+            print(bwThresh)
+            bwThresh+=25
+            bwThresh%=250
+            print(bwThresh)
 
     cam.release()
     cv2.destroyAllWindows()
     return frame
 
-def findBoundingBox(collection, frame, name, model):
+def findBoundingBox(collection, frame, setPNum, model, bwThresh):
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    ret,thresh = cv2.threshold(gray,127,255,cv2.THRESH_BINARY)
+    
+    ret,thresh = cv2.threshold(gray,bwThresh,255,cv2.THRESH_BINARY)
+    cv2.imshow("bw", thresh)
     # thresh = cv2.adaptiveThreshold(gray,255,cv2.ADAPTIVE_THRESH_MEAN_C,\
     #         cv2.THRESH_BINARY,3,2)
     # contours, _ = cv2.findContours(thresh,cv2.RETR_TREE,cv2.CHAIN_APPROX_NONE)
     contours, hierarchy = cv2.findContours(thresh,cv2.RETR_TREE,cv2.CHAIN_APPROX_SIMPLE)
     # foundContours = []
+    rets = []
+    embeddings = []
+    boxs = []
+    usedContours = []
     for i in range(len(contours)):
         
+        if hierarchy[0][i][3] in usedContours: # parent is already used
+            usedContours.append(i)
+            continue
         rotatedRect = cv2.minAreaRect(contours[i])
         if rotatedRect[2] > 45:
             rotation = rotatedRect[2]-90
@@ -240,6 +238,7 @@ def findBoundingBox(collection, frame, name, model):
         heightWidthRatio = h/w
         moments = cv2.moments(contours[i])
         if heightWidthRatio > 1.1 and heightWidthRatio < 1.5 and  moments['m00'] > 10000:
+            usedContours.append(i)
             rot_mat = cv2.getRotationMatrix2D(rotatedRect[0], rotation, 1.0)
             img1 = cv2.warpAffine(frame, rot_mat, frame.shape[1::-1], flags=cv2.INTER_LINEAR)
             w = int(w)
@@ -251,15 +250,22 @@ def findBoundingBox(collection, frame, name, model):
                 continue
             # x,y,w,h = cv2.boundingRect(countour)
             crop_img = img1[y:y+h, x:x+w]
+            crop_img = cv2.resize(crop_img, (745,1040), interpolation = cv2.INTER_AREA)
+            # cv2.imshow('card',crop_img)
             crop_img = cv2.rotate(crop_img, cv2.ROTATE_180)
-            embeding = computeEmbedding(crop_img, model)
-            ret = compareEmbedding(collection, embeding, name)
-            # lowerleftCorner = crop_img[8*h//9:h,0:w//3]
-            # lowerleftCorner = cv2.resize(lowerleftCorner, (w,h//3),interpolation = cv2.INTER_LINEAR)
-            # shape = lowerleftCorner.shape
-            # crop_img[h-shape[0]:h,0:shape[1]] = lowerleftCorner
-            return crop_img, ret
-    return frame,[]
+            embeding = computeEmbedding(crop_img, model)[0]
+            setPart = crop_img[int(crop_img.shape[0]/6*5):crop_img.shape[0],:]
+            # cv2.imshow('cards',setPart)
+            setEmbeding = computeEmbedding(setPart, model)[0]
+            embeddings.append((embeding,setEmbeding))
+            box = cv2.boxPoints(rotatedRect) 
+            box = np.intp(box)
+            boxs.append(box)
+    if len(embeddings) != 0:
+        rets, boxs = compareEmbedding(collection, embeddings,boxs,setPNum)
+        for box in boxs:
+            frame = cv2.drawContours(frame,[box],0,(0,0,255),2)
+    return frame,rets
 
 def computeEmbedding(frame, model):
     new_batch = model[0](text=[''],images=frame, return_tensors="pt")
@@ -268,13 +274,56 @@ def computeEmbedding(frame, model):
     embeddings = output.image_embeds.cpu().detach()
     return embeddings
 
-def compareEmbedding(collection, embeding, name):
-    search_params = {
-        "metric_type": "COSINE",
-        "params": {"nprobe": 512},
-    }
-    
-    sset,_,scnum = name.partition('-')
+def compareEmbedding(collection, embeding,boxs,setPNum):
+    maxCos = 0.0
+    url = ''
+    minBlob = {}
+    source = ''
+    embeddings = collection['embeddings']
+    partialEmbeddings = collection['partialEmbeddings']
+    t = time.time()
+    rets = []
+    nboxs = []
+    prodIds = []
+    for j in range(len(embeding)):
+        similarity = cos(embeding[j][0].to('cuda'), embeddings).cpu()
+        
+        # setSimilarity = cos(embeding[j][1].to('cuda'), partialEmbeddings).cpu()
+        i = np.argmax(similarity)
+        blob = collection['blobs'][i]
+        maxCos = similarity[i]
+        minSetCos = 0
+   
+        if maxCos < 0.7:
+            continue
+        
+        print(maxCos,blob['set'])
+        tmaxCos = maxCos
+        blob = collection['blobs'][i]    
+        while not (blob['setCode']+'-'+blob['num']).startswith(setPNum) and similarity[i]>0.7:
+            print(similarity[i],collection['blobs'][i]['setCode'],collection['blobs'][i]["name"],blob['num'])
+            similarity[i] = 0
+            # if minSetCos < .4 or (minSetCos < setSimilarity[i] and collection['blobs'][i]["name"]==blob['name']) or :
+            blob = collection['blobs'][i]
+                # minSetCos = setSimilarity[i]
+            tmaxCos = maxCos
+            i = np.argmax(similarity)
+            maxCos = similarity[i]
+
+        print()
+            
+        maxCos = tmaxCos 
+        
+        # if blob['prodId'] in prodIds:
+        #     continue
+        prodIds.append(blob['prodId'])
+        minBlob = blob
+        print(time.time()-t)
+        minBlob['cos']=maxCos
+        rets.append(minBlob)
+        nboxs.append(boxs[j])
+    return rets, nboxs
+    return []
     result = collection.search(embeding.numpy().tolist(), "embedding", search_params, expr=f'searchName like "{name}%" or (set like "{sset}%" and collector_number like "{scnum}%")',limit=4, output_fields=["id", "set","collector_number","prices","name"])
     ret = []
     for i in range(len(result[0])):
@@ -285,10 +334,46 @@ def compareEmbedding(collection, embeding, name):
         ret.append((name, num, prices, hit.distance))
     return ret
 
+def loadEmbeddings(config):
+    collection = {'partialEmbeddings':[],'embeddings':[],'blobs':[]}
+    count = 0
+    for fname in os.listdir(os.path.join('embeddings',config["type"])):
+        print(fname)
+        embeddingPath = os.path.join('embeddings',config["type"],fname)
+        content = open(embeddingPath).read()
+        for line in content.split('\n'):
+            blob = json.loads(line)
+            embedding = blob['embedding']
+            embedding = base64.b64decode(embedding)
+            f = io.BytesIO()
+            f.write(embedding)
+            f.seek(0)
+            embedding = np.load(f, allow_pickle=False).tolist()
+            if len(embedding) != 1:
+                count +=1
+                embedding = [embedding]
+            collection['embeddings'].append(embedding[0])
+
+            partialEmbedding = blob['partialEmbedding']
+            partialEmbedding = base64.b64decode(partialEmbedding)
+            f = io.BytesIO()
+            f.write(partialEmbedding)
+            f.seek(0)
+            partialEmbedding = np.load(f, allow_pickle=False).tolist()
+            if len(partialEmbedding) != 1:
+                count +=1
+                partialEmbedding = [partialEmbedding]
+            collection['partialEmbeddings'].append(partialEmbedding[0])
+            collection['blobs'].append(blob)
+    collection['embeddings'] = torch.tensor(collection['embeddings']).to('cuda')
+    collection['partialEmbeddings'] = torch.tensor(collection['partialEmbeddings']).to('cuda')
+    print(count,'are saved wrong')
+    return collection
+
 if __name__ == '__main__':
     config = util.loadConfig()
-    model = util.loadModel(config)
-    collection = util.connectDB(config)
-    collection.load()
     csvWriter, lines, desiredLines, s = openCsv(config)
+    model = util.loadModel(config)
+    collection = loadEmbeddings(config)
+    
     frame = getImage(collection, csvWriter, lines, desiredLines, s, config, model)
